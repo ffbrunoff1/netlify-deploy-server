@@ -198,24 +198,37 @@ const installDependencies = async (projectDir) => {
   }
 };
 
-// Função para fazer o build (VERSÃO FINAL E CORRETA)
+// Função para fazer o build (VERSÃO FINAL E À PROVA DE FALHAS)
 const runBuild = async (projectDir) => {
-  logger.info('Iniciando build', { projectDir });
+  logger.info('Iniciando build com caminho explícito para o Vite', { projectDir });
+
+  // Caminho absoluto e explícito para o executável do Vite dentro do projeto temporário.
+  // Isso elimina qualquer dependência do PATH do sistema.
+  const viteExecutablePath = path.join(projectDir, 'node_modules', '.bin', 'vite');
 
   try {
-    // Tentar pnpm primeiro, que é mais rápido
-    await executeCommand('pnpm', ['run', 'build'], projectDir);
-    logger.info('Build concluído com pnpm');
-  } catch (pnpmError) {
-    logger.warn('pnpm run build falhou, tentando com npm...', { error: pnpmError.message, projectDir });
-    try {
-      // Fallback para npm
-      await executeCommand('npm', ['run', 'build'], projectDir);
-      logger.info('Build concluído com npm');
-    } catch (npmError) {
-      logger.error('Build falhou com npm também', { npmError: npmError.message, projectDir });
-      throw new Error(`Build falhou com pnpm e npm. Erro principal: ${npmError.message}`);
-    }
+    // Verificar se o executável do Vite realmente existe após o 'npm install'
+    await fs.access(viteExecutablePath);
+    logger.info(`Executável do Vite encontrado em: ${viteExecutablePath}`);
+  } catch (accessError) {
+    logger.error('CRÍTICO: O executável do Vite não foi encontrado após a instalação das dependências.', {
+      path: viteExecutablePath,
+      error: accessError.message
+    });
+    throw new Error('Falha crítica: vite não foi instalado corretamente em node_modules/.bin.');
+  }
+
+  try {
+    // Executar o Vite DIRETAMENTE pelo seu caminho absoluto.
+    // O comando é o caminho para o vite, e o argumento é 'build'.
+    await executeCommand(viteExecutablePath, ['build'], projectDir);
+    logger.info('Build concluído com sucesso usando caminho explícito do Vite.');
+  } catch (buildError) {
+    logger.error('Build falhou mesmo com caminho explícito do Vite.', {
+      error: buildError.message,
+      projectDir
+    });
+    throw new Error(`Build falhou: ${buildError.message}`);
   }
 };
 
