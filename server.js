@@ -400,6 +400,10 @@ app.post('/deploy', async (req, res) => {
     
     // Publicar na Netlify
     const deployData = await publishToNetlify(zipPath, siteName);
+
+    logger.info('RESPOSTA COMPLETA RECEBIDA DO NETLIFY:', { 
+      data: JSON.stringify(deployData, null, 2) 
+    });
     
     logger.info('Deploy concluído com sucesso', { 
       deployId, 
@@ -407,19 +411,23 @@ app.post('/deploy', async (req, res) => {
       siteId: deployData.site_id 
     });
     
-    res.json({
-      success: true,
-      deployId,
-      deploy: {
-        url: deployData.ssl_url,
-        siteId: deployData.site_id,
-        deployId: deployData.id,
-        siteName: deployData.name,
-        adminUrl: deployData.admin_url,
-        createdAt: deployData.created_at
-      },
-      message: 'Deploy concluído com sucesso na Netlify'
-    });
+    // Primeiro, vamos logar o que recebemos do Netlify para ter certeza
+logger.info('Dados recebidos do Netlify para montar a resposta:', { deployData });
+
+// Agora, montamos a resposta final, garantindo que nenhum campo seja undefined
+res.json({
+  success: true,
+  deployId: deployId, // O ID da nossa requisição
+  deploy: {
+    url: deployData.ssl_url || '', // Garante que seja uma string
+    siteId: deployData.site_id || '', // Garante que seja uma string
+    deployId: deployData.id || '', // O ID do deploy do Netlify
+    siteName: deployData.name || '', // Garante que seja uma string
+    adminUrl: deployData.admin_url || '', // Garante que seja uma string
+    createdAt: deployData.created_at || new Date().toISOString() // Garante que seja uma string
+  },
+  message: 'Deploy concluído com sucesso na Netlify'
+});
     
   } catch (error) {
     logger.error('Erro no deploy', { deployId, error: error.message, stack: error.stack });
