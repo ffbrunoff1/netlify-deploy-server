@@ -128,12 +128,19 @@ const deployRequestSchema = Joi.object({
   siteName: Joi.string().optional()
 });
 
-// Função para executar comandos
 const executeCommand = (command, args, cwd, timeout = config.buildTimeout) => {
   return new Promise((resolve, reject) => {
-    logger.info(`Executando comando: ${command} ${args.join(' ')}`, { cwd });
+    // Usamos 'npx' como uma alternativa robusta para encontrar executáveis de pacotes.
+    // Ou podemos chamar o gerenciador de pacotes diretamente.
+    // O 'shell: true' é importante para que comandos como 'npm run build' funcionem corretamente.
+    const fullCommand = `${command} ${args.join(' ')}`;
+    logger.info(`Executando comando: ${fullCommand}`, { cwd });
     
-    const process = spawn(command, args, { 
+    // A opção 'shell: true' faz com que o comando seja executado dentro de um shell (/bin/sh)
+    // que geralmente tem o PATH configurado para encontrar os binários do node_modules.
+    // A sua implementação original com 'shell: true' já era boa. O problema pode ser
+    // o ambiente do Render. Vamos manter, mas garantir que o comando está correto.
+    const process = spawn(fullCommand, [], { // Passamos o comando inteiro como primeiro argumento e o array de args vazio
       cwd, 
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: true 
@@ -144,10 +151,12 @@ const executeCommand = (command, args, cwd, timeout = config.buildTimeout) => {
     
     process.stdout.on('data', (data) => {
       stdout += data.toString();
+      logger.info(`[${command} stdout]: ${data.toString().trim()}`); // Logar a saída em tempo real
     });
     
     process.stderr.on('data', (data) => {
       stderr += data.toString();
+      logger.error(`[${command} stderr]: ${data.toString().trim()}`); // Logar o erro em tempo real
     });
     
     const timer = setTimeout(() => {
@@ -158,10 +167,10 @@ const executeCommand = (command, args, cwd, timeout = config.buildTimeout) => {
     process.on('close', (code) => {
       clearTimeout(timer);
       if (code === 0) {
-        logger.info(`Comando concluído com sucesso`, { command, code });
+        logger.info(`Comando concluído com sucesso`, { command, code, stdout });
         resolve({ stdout, stderr, code });
       } else {
-        logger.error(`Comando falhou`, { command, code, stderr });
+        logger.error(`Comando falhou`, { command, code, stderr, stdout });
         reject(new Error(`Comando falhou com código ${code}: ${stderr}`));
       }
     });
