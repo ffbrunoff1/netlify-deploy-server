@@ -43,8 +43,8 @@ const logger = winston.createLogger({
 });
 
 // Criar diretórios necessários
-await fs.mkdir(config.tempDir, { recursive: true });
-await fs.mkdir(config.logsDir, { recursive: true });
+await fs.promises.mkdir(config.tempDir, { recursive: true });
+await fs.promises.mkdir(config.logsDir, { recursive: true });
 
 const app = express();
 
@@ -208,7 +208,7 @@ const runBuild = async (projectDir) => {
 
   try {
     // Verificar se o executável do Vite realmente existe após o 'npm install'
-    await fs.access(viteExecutablePath);
+    await fs.promises.access(viteExecutablePath);
     logger.info(`Executável do Vite encontrado em: ${viteExecutablePath}`);
   } catch (accessError) {
     logger.error('CRÍTICO: O executável do Vite não foi encontrado após a instalação das dependências.', {
@@ -266,7 +266,7 @@ const publishToNetlify = async (zipPath, siteName = null) => {
   logger.info('Enviando para Netlify', { zipPath, siteName });
 
   try {
-    const zipBuffer = await fs.readFile(zipPath);
+    const zipBuffer = await fs.promises.readFile(zipPath);
     
     let apiUrl = 'https://api.netlify.com/api/v1/sites';
     
@@ -306,16 +306,16 @@ const publishToNetlify = async (zipPath, siteName = null) => {
 // Função para limpar arquivos temporários antigos
 const cleanupOldFiles = async () => {
   try {
-    const entries = await fs.readdir(config.tempDir, { withFileTypes: true });
+    const entries = await fs.promises.readdir(config.tempDir, { withFileTypes: true });
     const now = Date.now();
     
     for (const entry of entries) {
       if (entry.isDirectory()) {
         const dirPath = path.join(config.tempDir, entry.name);
-        const stats = await fs.stat(dirPath);
+        const stats = await fs.promises.stat(dirPath);
         
         if (now - stats.mtime.getTime() > config.maxTempAge) {
-          await fs.rm(dirPath, { recursive: true, force: true });
+          await fs.promises.rm(dirPath, { recursive: true, force: true });
           logger.info(`Arquivo temporário removido: ${entry.name}`);
         }
       }
@@ -365,15 +365,15 @@ app.post('/deploy', async (req, res) => {
     logger.info('Criando projeto para deploy', { deployId, fileCount, siteName });
     
     // Criar diretório do projeto
-    await fs.mkdir(projectDir, { recursive: true });
+    await fs.promises.mkdir(projectDir, { recursive: true });
     
     // Escrever arquivos
     await Promise.all(
       Object.entries(files).map(async ([filePath, content]) => {
         const fullPath = path.join(projectDir, filePath);
         const dir = path.dirname(fullPath);
-        await fs.mkdir(dir, { recursive: true });
-        await fs.writeFile(fullPath, content, 'utf8');
+        await fs.promises.mkdir(dir, { recursive: true });
+        await fs.promises.writeFile(fullPath, content, 'utf8');
       })
     );
     
@@ -390,7 +390,7 @@ app.post('/deploy', async (req, res) => {
     const indexPath = path.join(distPath, 'index.html');
     
     try {
-      await fs.access(indexPath);
+      await fs.promises.access(indexPath);
     } catch {
       throw new Error('Build falhou: index.html não encontrado na pasta dist');
     }
@@ -432,7 +432,7 @@ app.post('/deploy', async (req, res) => {
   } finally {
     // Limpar pasta temporária sempre (sucesso ou erro)
     try {
-      await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.promises.rm(projectDir, { recursive: true, force: true });
       logger.info(`Pasta temporária de deploy removida: ${deployId}`);
     } catch (cleanupError) {
       logger.error('Erro na limpeza após deploy', { deployId, error: cleanupError.message });
