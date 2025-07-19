@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import fs from 'fs/promises';
+import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 import { nanoid } from 'nanoid';
