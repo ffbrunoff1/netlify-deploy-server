@@ -55,20 +55,43 @@ app.set('trust proxy', 1);
 app.use(express.json({ limit: config.maxFileSize }));
 app.use(express.urlencoded({ limit: config.maxFileSize, extended: true }));
 
-app.use(cors({
-  origin: [
-    'https://lovableproject.com',
-    'https://*.lovableproject.com',
-    'http://localhost:3000',
-    'http://localhost:5173'
-  ],
+const allowedOrigins = [
+  'https://lovableproject.com',
+  'http://localhost:3000',
+  'http://localhost:5173'
+  // Adicione aqui a URL exata do seu ambiente de preview, se for fixa.
+  // Ex: 'https://afdd7aeb-a01f-470a-a013-1e29dda9c6c1.lovableproject.com'
+];
+
+const corsOptions = {
+  origin: function (origin, callback ) {
+    // Permite requisições sem 'origin' (ex: Postman, curl)
+    if (!origin) return callback(null, true);
+
+    // Verifica se a origem está na lista de permitidas
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    // Lógica para permitir subdomínios de lovableproject.com
+    // Isso cobre 'https://qualquer-coisa.lovableproject.com'
+    const isLovableSubdomain = /^https:\/\/[a-z0-9-]+\.lovableproject\.com$/.test(origin );
+    if (isLovableSubdomain) {
+      return callback(null, true);
+    }
+
+    // Se a origem não for permitida
+    const msg = 'A política de CORS para este site não permite acesso da origem especificada.';
+    return callback(new Error(msg), false);
+  },
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
-} ));
+  credentials: true,
+  optionsSuccessStatus: 204 // Retorna 204 para preflight, é mais moderno e evita problemas
+};
 
-// Middleware para OPTIONS
-app.options('*', cors());
+// Aplica o middleware CORS com as opções configuradas
+app.use(cors(corsOptions));
 
 app.use(helmet({
   contentSecurityPolicy: false,
