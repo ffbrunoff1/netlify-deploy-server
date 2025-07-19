@@ -56,9 +56,19 @@ app.use(express.json({ limit: config.maxFileSize }));
 app.use(express.urlencoded({ limit: config.maxFileSize, extended: true }));
 
 app.use(cors({
-  origin: true,
+  origin: [
+    'https://lovableproject.com',
+    'https://*.lovableproject.com',
+    'http://localhost:3000',
+    'http://localhost:5173'
+  ],
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
-}));
+} ));
+
+// Middleware para OPTIONS
+app.options('*', cors());
 
 app.use(helmet({
   contentSecurityPolicy: false,
