@@ -128,15 +128,18 @@ const deployRequestSchema = Joi.object({
   siteName: Joi.string().optional()
 });
 
-// Função para executar comandos (VERSÃO CORRIGIDA E PRECISA)
+// Função para executar comandos (VERSÃO FINAL E CORRETA)
 const executeCommand = (command, args, cwd, timeout = config.buildTimeout) => {
   return new Promise((resolve, reject) => {
-    logger.info(`Executando comando: ${command} ${args.join(' ')}`, { cwd });
-    
-    // Removido 'shell: true'. Isso é crucial.
-    const process = spawn(command, args, { 
+    const fullCommand = `${command} ${args.join(' ')}`;
+    logger.info(`Executando comando: ${fullCommand}`, { cwd });
+
+    // AQUI ESTÁ A CORREÇÃO: shell: true é NECESSÁRIO.
+    // O comando completo é passado como primeiro argumento.
+    const process = spawn(fullCommand, [], { 
       cwd, 
-      stdio: ['pipe', 'pipe', 'pipe']
+      shell: true, // ESSENCIAL PARA O AMBIENTE DO RENDER ENCONTRAR O VITE
+      stdio: 'pipe'
     });
     
     let stdout = '';
@@ -195,34 +198,23 @@ const installDependencies = async (projectDir) => {
   }
 };
 
-// Função para fazer o build
+// Função para fazer o build (VERSÃO FINAL E CORRETA)
 const runBuild = async (projectDir) => {
   logger.info('Iniciando build', { projectDir });
 
-  // O comando 'npm' ou 'pnpm' deve ser encontrado no PATH global do sistema do Render.
-  // O problema é o script que ELES rodam.
-  // A forma mais robusta de executar um script de pacote é 'npm run <script>'.
-  // Isso garante que o PATH local (node_modules/.bin) seja usado.
-
   try {
-    // Tentativa com NPM, que é mais garantido de estar no ambiente.
-    // O comando 'npm' é o executável, 'run' e 'build' são seus argumentos.
-    await executeCommand('npm', ['run', 'build'], projectDir);
-    logger.info('Build concluído com npm');
-  } catch (npmError) {
-    logger.error('Falha no build com npm', { error: npmError.message });
-    
-    // Se o npm falhar, não há muito o que fazer, pois é o fallback padrão.
-    // A tentativa com pnpm é secundária.
-    logger.warn('Tentando build com pnpm como fallback...', { npmError: npmError.message });
-    
+    // Tentar pnpm primeiro, que é mais rápido
+    await executeCommand('pnpm', ['run', 'build'], projectDir);
+    logger.info('Build concluído com pnpm');
+  } catch (pnpmError) {
+    logger.warn('pnpm run build falhou, tentando com npm...', { error: pnpmError.message, projectDir });
     try {
-      await executeCommand('pnpm', ['run', 'build'], projectDir);
-      logger.info('Build concluído com pnpm (fallback)');
-    } catch (pnpmError) {
-      logger.error('Falha no build com pnpm também', { pnpmError: pnpmError.message });
-      // Lança um erro final e claro.
-      throw new Error(`Build falhou com npm e pnpm. Erro principal (npm): ${npmError.message}`);
+      // Fallback para npm
+      await executeCommand('npm', ['run', 'build'], projectDir);
+      logger.info('Build concluído com npm');
+    } catch (npmError) {
+      logger.error('Build falhou com npm também', { npmError: npmError.message, projectDir });
+      throw new Error(`Build falhou com pnpm e npm. Erro principal: ${npmError.message}`);
     }
   }
 };
