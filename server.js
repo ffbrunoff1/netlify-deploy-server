@@ -177,24 +177,24 @@ const executeCommand = (command, args, cwd, timeout = config.buildTimeout) => {
   });
 };
 
-// Função para instalar dependências
+// Função para instalar dependências (VERSÃO CORRETA E MAIS SEGURA)
 const installDependencies = async (projectDir) => {
-  logger.info('Instalando dependências', { projectDir });
-  
-  // Verificar se pnpm está disponível
+  logger.info('Instalando TODAS as dependências (incluindo dev)', { projectDir });
+
+  // A forma mais segura de garantir que devDependencies sejam instaladas
+  // é setar o NODE_ENV para 'development' temporariamente para o comando.
+  // No entanto, o spawn do Node não tem uma forma fácil de fazer isso cross-platform.
+  // A flag do npm é a melhor abordagem. A flag correta é --omit=dev (para omitir)
+  // então para incluir, nós simplesmente não a usamos e garantimos que NODE_ENV não seja 'production'.
+  // A flag '--include=dev' é uma opção, mas a mais comum é controlar pelo NODE_ENV.
+
+  // Vamos tentar a abordagem mais explícita com a flag de produção desativada.
   try {
-    await executeCommand('pnpm', ['--version'], projectDir, 10000);
-    await executeCommand('pnpm', ['install', '--frozen-lockfile'], projectDir);
-    logger.info('Dependências instaladas com pnpm');
-  } catch (pnpmError) {
-    logger.warn('pnpm não disponível, tentando com npm', { error: pnpmError.message });
-    try {
-      await executeCommand('npm', ['install'], projectDir);
-      logger.info('Dependências instaladas com npm');
-    } catch (npmError) {
-      logger.error('Falha ao instalar dependências', { pnpmError: pnpmError.message, npmError: npmError.message });
-      throw new Error('Falha ao instalar dependências com pnpm e npm');
-    }
+    await executeCommand('npm', ['install', '--include=dev'], projectDir);
+    logger.info('Dependências instaladas com npm (incluindo dev)');
+  } catch (npmError) {
+    logger.error('Falha ao instalar dependências com npm', { npmError: npmError.message });
+    throw new Error(`Falha ao instalar dependências: ${npmError.message}`);
   }
 };
 
