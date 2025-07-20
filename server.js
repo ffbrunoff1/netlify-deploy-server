@@ -414,22 +414,19 @@ app.post('/deploy', async (req, res) => {
     // Primeiro, vamos logar o que recebemos do Netlify para ter certeza
 logger.info('Dados recebidos do Netlify para montar a resposta:', { deployData });
 
-// Agora, montamos a resposta final usando os campos CORRETOS da resposta do Netlify
+// Montamos a resposta final PLANA, sem o objeto "deploy" aninhado.
 res.json({
   success: true,
-  deployId: deployId, // O ID da nossa requisição
-  deploy: {
-    // CORRIGIDO: Usar os campos que realmente existem em deployData
-    url: deployData.url || '', // O campo é 'url', não 'ssl_url'
-    siteId: deployData.id || '', // O campo é 'id', não 'site_id'
-    deployId: deployData.deploy_id || '', // O campo é 'deploy_id'
-    siteName: deployData.subdomain || '', // O campo é 'subdomain', não 'name'
-    
-    // CAMPOS NÃO FORNECIDOS: Deixamos como string vazia ou montamos um link
-    adminUrl: `https://app.netlify.com/sites/${deployData.subdomain}/overview`, // Montamos o admin_url
-    createdAt: new Date( ).toISOString() // Geramos a data atual
-  },
-  message: 'Deploy concluído com sucesso na Netlify'
+  message: 'Deploy concluído com sucesso na Netlify',
+  
+  // Os dados do deploy vão diretamente no corpo da resposta,
+  // exatamente como a função parseDeployResponse no frontend espera.
+  id: deployData.id || '',
+  deploy_id: deployData.deploy_id || '',
+  subdomain: deployData.subdomain || '',
+  url: deployData.url || '',
+  state: deployData.state || 'uploaded',
+  required: deployData.required || []
 });
     
   } catch (error) {
