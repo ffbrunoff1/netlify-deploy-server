@@ -414,17 +414,20 @@ app.post('/deploy', async (req, res) => {
     // Primeiro, vamos logar o que recebemos do Netlify para ter certeza
 logger.info('Dados recebidos do Netlify para montar a resposta:', { deployData });
 
-// Agora, montamos a resposta final, garantindo que nenhum campo seja undefined
+// Agora, montamos a resposta final usando os campos CORRETOS da resposta do Netlify
 res.json({
   success: true,
   deployId: deployId, // O ID da nossa requisição
   deploy: {
-    url: deployData.ssl_url || '', // Garante que seja uma string
-    siteId: deployData.site_id || '', // Garante que seja uma string
-    deployId: deployData.id || '', // O ID do deploy do Netlify
-    siteName: deployData.name || '', // Garante que seja uma string
-    adminUrl: deployData.admin_url || '', // Garante que seja uma string
-    createdAt: deployData.created_at || new Date().toISOString() // Garante que seja uma string
+    // CORRIGIDO: Usar os campos que realmente existem em deployData
+    url: deployData.url || '', // O campo é 'url', não 'ssl_url'
+    siteId: deployData.id || '', // O campo é 'id', não 'site_id'
+    deployId: deployData.deploy_id || '', // O campo é 'deploy_id'
+    siteName: deployData.subdomain || '', // O campo é 'subdomain', não 'name'
+    
+    // CAMPOS NÃO FORNECIDOS: Deixamos como string vazia ou montamos um link
+    adminUrl: `https://app.netlify.com/sites/${deployData.subdomain}/overview`, // Montamos o admin_url
+    createdAt: new Date( ).toISOString() // Geramos a data atual
   },
   message: 'Deploy concluído com sucesso na Netlify'
 });
