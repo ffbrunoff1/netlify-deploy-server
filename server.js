@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import winston from 'winston';
 import Joi from 'joi';
 import archiver from 'archiver';
+import fetch from 'node-fetch'; // <-- ÚNICA NOVA IMPORTAÇÃO ADICIONADA
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -127,6 +128,122 @@ const deployRequestSchema = Joi.object({
   ).required(),
   siteName: Joi.string().optional()
 });
+
+// ==========================================
+// NOVAS FUNÇÕES PARA INTEGRAÇÃO COM NETLIFY
+// ==========================================
+
+// FUNÇÃO: Criar um site na Netlify com domínio personalizado
+const createNetlifySite = async (siteName, netlifyToken) => {
+  logger.info('Criando novo site na Netlify com domínio personalizado', { siteName });
+
+  // O domínio base da sua ferramenta (VOCÊ PRECISA CONFIGURAR ESTA VARIÁVEL)
+  const CUSTOM_DOMAIN = process.env.CUSTOM_DOMAIN || 'papum.ai';
+
+  // Monta o FQDN (Fully Qualified Domain Name) que queremos
+  const fqdn = `${siteName}.${CUSTOM_DOMAIN}`;
+
+  const body = {
+    name: siteName,
+    custom_domain: fqdn,
+    force_ssl: true,
+  };
+
+  const response = await fetch('https://api.netlify.com/api/v1/sites', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${netlifyToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    logger.error('Falha ao criar site na Netlify', { error: errorData });
+    if (errorData.message && errorData.message.includes('must be unique')) {
+        throw new Error(`O nome do site '${siteName}' já está em uso. Tente outro.`);
+    }
+    throw new Error(`Não foi possível criar o site: ${errorData.message}`);
+  }
+
+  const siteData = await response.json();
+  logger.info('Site criado com sucesso na Netlify', { 
+    siteId: siteData.id,
+    customUrl: `https://${fqdn}`
+  });
+  
+  return {
+    siteId: siteData.id,
+    finalUrl: `https://${fqdn}`
+  };
+};
+
+// FUNÇÃO: Configurar as variáveis de ambiente para Netlify Emails
+const setEnvironmentVariables = async (siteId, netlifyToken) => {
+  const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
+  const NETLIFY_EMAILS_SECRET = process.env.NETLIFY_EMAILS_SECRET;
+
+  if (!SENDGRID_API_KEY || !NETLIFY_EMAILS_SECRET) {
+    throw new Error('Variáveis de ambiente SENDGRID_API_KEY ou NETLIFY_EMAILS_SECRET não configuradas no servidor.');
+  }
+
+  logger.info('Configurando variáveis de ambiente na Netlify', { siteId });
+
+  const body = {
+    env: [
+      { key: 'NETLIFY_EMAILS_PROVIDER', value: 'sendgrid' },
+      { key: 'NETLIFY_EMAILS_PROVIDER_API_KEY', value: SENDGRID_API_KEY },
+      { key: 'NETLIFY_EMAILS_SECRET', value: NETLIFY_EMAILS_SECRET },
+    ],
+  };
+
+  const response = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${netlifyToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    logger.error('Falha ao configurar variáveis de ambiente', { error: errorData });
+    throw new Error(`Não foi possível configurar as variáveis de ambiente: ${errorData.message}`);
+  }
+
+  logger.info('Variáveis de ambiente configuradas com sucesso', { siteId });
+};
+
+// FUNÇÃO: Fazer o deploy do ZIP para um site existente
+const deployZipToSite = async (siteId, zipPath, netlifyToken) => {
+  logger.info('Fazendo deploy do ZIP para o site existente', { siteId });
+  const zipBuffer = await fs.promises.readFile(zipPath);
+
+  const response = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/deploys`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/zip',
+      'Authorization': `Bearer ${netlifyToken}`,
+    },
+    body: zipBuffer,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.text();
+    logger.error('Erro no deploy do ZIP para a Netlify', { status: response.status, error: errorData });
+    throw new Error(`Erro no deploy do ZIP (${response.status}): ${errorData}`);
+  }
+
+  const deployData = await response.json();
+  logger.info('Deploy do ZIP bem-sucedido!', { url: deployData.ssl_url, deployId: deployData.id });
+  return deployData;
+};
+
+// ==========================================
+// FUNÇÕES ORIGINAIS (MANTIDAS INTACTAS)
+// ==========================================
 
 // Função para executar comandos (VERSÃO FINAL E CORRETA)
 const executeCommand = (command, args, cwd, timeout = config.buildTimeout) => {
@@ -256,50 +373,76 @@ const createZipFromDist = (projectDir) => {
   });
 };
 
-// Função para publicar na Netlify
+// FUNÇÃO publishToNetlify MODIFICADA PARA USAR O NOVO FLUXO
 const publishToNetlify = async (zipPath, siteName = null) => {
   const NETLIFY_TOKEN = process.env.NETLIFY_AUTH_TOKEN;
   if (!NETLIFY_TOKEN) {
     throw new Error('Token da Netlify não configurado no servidor. Configure a variável NETLIFY_AUTH_TOKEN.');
   }
 
-  logger.info('Enviando para Netlify', { zipPath, siteName });
+  // Se as variáveis de ambiente para e-mail estão configuradas, usa o novo fluxo
+  const hasEmailConfig = process.env.SENDGRID_API_KEY && process.env.NETLIFY_EMAILS_SECRET;
 
-  try {
-    const zipBuffer = await fs.promises.readFile(zipPath);
+  if (hasEmailConfig && siteName) {
+    logger.info('Usando fluxo completo com domínio personalizado e e-mail', { siteName });
     
-    let apiUrl = 'https://api.netlify.com/api/v1/sites';
-    
-    if (siteName) {
-      apiUrl += `?name=${encodeURIComponent(siteName)}`;
+    try {
+      // Passo 1: Criar o site e configurar o domínio personalizado
+      const { siteId, finalUrl } = await createNetlifySite(siteName, NETLIFY_TOKEN);
+
+      // Passo 2: Configurar as variáveis de ambiente para o e-mail
+      await setEnvironmentVariables(siteId, NETLIFY_TOKEN);
+
+      // Passo 3: Fazer o deploy do código (ZIP) para o site recém-criado
+      const deployData = await deployZipToSite(siteId, zipPath, NETLIFY_TOKEN);
+
+      // Retorna os dados com a URL personalizada
+      return { ...deployData, ssl_url: finalUrl, url: finalUrl };
+
+    } catch (error) {
+      logger.error('Falha no processo de publicação orquestrada na Netlify', { error: error.message });
+      throw error;
     }
+  } else {
+    // Fluxo original (fallback)
+    logger.info('Usando fluxo original da Netlify', { zipPath, siteName });
 
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/zip',
-        'Authorization': `Bearer ${NETLIFY_TOKEN}`,
-      },
-      body: zipBuffer,
-    });
+    try {
+      const zipBuffer = await fs.promises.readFile(zipPath);
+      
+      let apiUrl = 'https://api.netlify.com/api/v1/sites';
+      
+      if (siteName) {
+        apiUrl += `?name=${encodeURIComponent(siteName)}`;
+      }
 
-    if (!response.ok) {
-      const errorData = await response.text();
-      logger.error('Erro no deploy da Netlify', { status: response.status, error: errorData });
-      throw new Error(`Erro no deploy da Netlify (${response.status}): ${errorData}`);
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/zip',
+          'Authorization': `Bearer ${NETLIFY_TOKEN}`,
+        },
+        body: zipBuffer,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.text();
+        logger.error('Erro no deploy da Netlify', { status: response.status, error: errorData });
+        throw new Error(`Erro no deploy da Netlify (${response.status}): ${errorData}`);
+      }
+
+      const deployData = await response.json();
+      logger.info('Deploy na Netlify bem-sucedido!', { 
+        url: deployData.ssl_url, 
+        siteId: deployData.site_id,
+        deployId: deployData.id 
+      });
+
+      return deployData;
+    } catch (error) {
+      logger.error('Falha ao publicar na Netlify', { error: error.message });
+      throw error;
     }
-
-    const deployData = await response.json();
-    logger.info('Deploy na Netlify bem-sucedido!', { 
-      url: deployData.ssl_url, 
-      siteId: deployData.site_id,
-      deployId: deployData.id 
-    });
-
-    return deployData;
-  } catch (error) {
-    logger.error('Falha ao publicar na Netlify', { error: error.message });
-    throw error;
   }
 };
 
@@ -504,4 +647,3 @@ process.on('unhandledRejection', (reason, promise) => {
   logger.error('Promise rejeitada não tratada', { reason, promise });
   process.exit(1);
 });
-
