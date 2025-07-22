@@ -179,6 +179,35 @@ const createNetlifySite = async (siteName, netlifyToken) => {
   };
 };
 
+// FUNÇÃO: Definir o domínio personalizado como o domínio principal do site
+const setPrimaryDomain = async (siteId, customDomain, netlifyToken) => {
+  logger.info('Definindo domínio principal na Netlify', { siteId, customDomain });
+
+  // O corpo da requisição para atualizar o site precisa incluir o custom_domain
+  const body = {
+    custom_domain: customDomain,
+  };
+
+  const response = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${netlifyToken}`,
+    },
+    body: JSON.stringify(body ),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    logger.error('Falha ao definir o domínio principal', { error: errorData });
+    throw new Error(`Não foi possível definir o domínio principal: ${errorData.message}`);
+  }
+
+  logger.info('Domínio principal definido com sucesso!', { siteId, customDomain });
+  const updatedSiteData = await response.json();
+  return updatedSiteData;
+};
+
 // FUNÇÃO: Configurar as variáveis de ambiente para Netlify Emails
 const setEnvironmentVariables = async (siteId, netlifyToken) => {
   const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
@@ -373,30 +402,36 @@ const createZipFromDist = (projectDir) => {
   });
 };
 
-// FUNÇÃO publishToNetlify MODIFICADA PARA USAR O NOVO FLUXO
 const publishToNetlify = async (zipPath, siteName = null) => {
   const NETLIFY_TOKEN = process.env.NETLIFY_AUTH_TOKEN;
   if (!NETLIFY_TOKEN) {
     throw new Error('Token da Netlify não configurado no servidor. Configure a variável NETLIFY_AUTH_TOKEN.');
   }
 
-  // Se as variáveis de ambiente para e-mail estão configuradas, usa o novo fluxo
   const hasEmailConfig = process.env.SENDGRID_API_KEY && process.env.NETLIFY_EMAILS_SECRET;
 
   if (hasEmailConfig && siteName) {
     logger.info('Usando fluxo completo com domínio personalizado e e-mail', { siteName });
     
     try {
-      // Passo 1: Criar o site e configurar o domínio personalizado
-      const { siteId, finalUrl } = await createNetlifySite(siteName, NETLIFY_TOKEN);
+      // Passo 1: Criar o site. A desestruturação aqui muda um pouco.
+      const { siteId } = await createNetlifySite(siteName, NETLIFY_TOKEN); // <-- MUDANÇA AQUI (não pegamos mais finalUrl)
 
-      // Passo 2: Configurar as variáveis de ambiente para o e-mail
+      // Passo 1.5 (NOVO): Definir o domínio personalizado como o principal.
+      const CUSTOM_DOMAIN = process.env.CUSTOM_DOMAIN || 'papum.ai';
+      const fqdn = `${siteName}.${CUSTOM_DOMAIN}`;
+      await setPrimaryDomain(siteId, fqdn, NETLIFY_TOKEN); // <-- MUDANÇA AQUI (adicionamos este passo)
+
+      // Passo 2: Configurar as variáveis de ambiente para o e-mail (sem alteração)
       await setEnvironmentVariables(siteId, NETLIFY_TOKEN);
 
-      // Passo 3: Fazer o deploy do código (ZIP) para o site recém-criado
+      // Passo 3: Fazer o deploy do código (ZIP) para o site recém-criado (sem alteração)
       const deployData = await deployZipToSite(siteId, zipPath, NETLIFY_TOKEN);
 
-      // Retorna os dados com a URL personalizada
+      // Monta a URL final com o domínio personalizado correto
+      const finalUrl = `https://${fqdn}`;
+
+      // Retorna os dados com a URL personalizada (sem alteração )
       return { ...deployData, ssl_url: finalUrl, url: finalUrl };
 
     } catch (error) {
@@ -404,7 +439,10 @@ const publishToNetlify = async (zipPath, siteName = null) => {
       throw error;
     }
   } else {
-    // Fluxo original (fallback)
+    // ================================================================
+    // O BLOCO 'ELSE' INTEIRO DEVE PERMANECER EXATAMENTE COMO ESTÁ.
+    // ELE NÃO DEVE SER REMOVIDO.
+    // ================================================================
     logger.info('Usando fluxo original da Netlify', { zipPath, siteName });
 
     try {
@@ -412,7 +450,7 @@ const publishToNetlify = async (zipPath, siteName = null) => {
       
       let apiUrl = 'https://api.netlify.com/api/v1/sites';
       
-      if (siteName) {
+      if (siteName ) {
         apiUrl += `?name=${encodeURIComponent(siteName)}`;
       }
 
