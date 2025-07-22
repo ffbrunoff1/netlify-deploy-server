@@ -207,31 +207,25 @@ const setPrimaryDomain = async (siteId, customDomain, netlifyToken) => {
   return updatedSiteData;
 };
 
-// FUNÇÃO: Configurar as variáveis de ambiente para Netlify Emails (VERSÃO CORRIGIDA)
+// FUNÇÃO: Configurar as variáveis de ambiente para Netlify Emails (VERSÃO MAIS ROBUSTA)
 const setEnvironmentVariables = async (siteId, netlifyToken) => {
   logger.info('Configurando variáveis de ambiente na Netlify', { siteId });
 
-  // Lista das variáveis de ambiente que o plugin de e-mail precisa.
   const requiredEnvVars = [
     'NETLIFY_EMAILS_PROVIDER',
     'NETLIFY_EMAILS_PROVIDER_API_KEY',
     'NETLIFY_EMAILS_SECRET'
   ];
-
   const envPayload = {};
 
-  // Lê cada variável do ambiente do nosso servidor e a adiciona ao payload.
   for (const key of requiredEnvVars) {
     const value = process.env[key];
     if (!value) {
-      // Se alguma variável essencial não estiver configurada no nosso servidor, o processo para.
       throw new Error(`Variável de ambiente obrigatória '${key}' não está configurada no servidor de deploy.`);
     }
     envPayload[key] = value;
   }
 
-  // O corpo da requisição para a API da Netlify.
-  // A API espera um objeto 'build_settings' com uma propriedade 'env'.
   const body = {
     build_settings: {
       env: envPayload,
@@ -247,14 +241,28 @@ const setEnvironmentVariables = async (siteId, netlifyToken) => {
     body: JSON.stringify(body ),
   });
 
+  // ================================================================
+  // INÍCIO DO NOVO TRATAMENTO DE ERRO
+  // ================================================================
   if (!response.ok) {
-    const errorData = await response.json();
-    logger.error('Falha ao configurar variáveis de ambiente na Netlify', { error: errorData });
-    throw new Error(`Não foi possível configurar as variáveis de ambiente: ${errorData.message}`);
+    // Tenta ler a resposta como texto, já que pode não ser JSON
+    const errorText = await response.text(); 
+    logger.error('Falha ao configurar variáveis de ambiente na Netlify', { 
+      status: response.status,
+      errorBody: errorText // Loga o corpo exato da resposta
+    });
+    // Joga um erro com a mensagem que recebemos
+    throw new Error(`Não foi possível configurar as variáveis de ambiente: ${errorText}`);
   }
+  // ================================================================
+  // FIM DO NOVO TRATAMENTO DE ERRO
+  // ================================================================
 
   logger.info('Variáveis de ambiente configuradas com sucesso na Netlify', { siteId });
+  // Como a resposta de um PUT bem-sucedido pode não ter corpo, não tentamos fazer o .json()
+  return; 
 };
+
 // FUNÇÃO: Fazer o deploy do ZIP para um site existente
 const deployZipToSite = async (siteId, zipPath, netlifyToken) => {
   logger.info('Fazendo deploy do ZIP para o site existente', { siteId });
@@ -431,6 +439,9 @@ const publishToNetlify = async (zipPath, siteName = null) => {
       const CUSTOM_DOMAIN = process.env.CUSTOM_DOMAIN || 'papum.ai';
       const fqdn = `${siteName}.${CUSTOM_DOMAIN}`;
       await setPrimaryDomain(siteId, fqdn, NETLIFY_TOKEN); // <-- MUDANÇA AQUI (adicionamos este passo)
+
+      logger.info('Aguardando 2 segundos antes de configurar as variáveis de ambiente...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       // Passo 2: Configurar as variáveis de ambiente para o e-mail (sem alteração)
       await setEnvironmentVariables(siteId, NETLIFY_TOKEN);
