@@ -288,7 +288,6 @@ const setEnvironmentVariables = async (siteId, netlifyToken) => {
 
   logger.info('Variáveis de ambiente configuradas com sucesso na Netlify', { siteId });
   // Como a resposta de um PUT bem-sucedido pode não ter corpo, não tentamos fazer o .json()
-  return; 
 };
 
 // FUNÇÃO: Fazer o deploy do ZIP para um site existente
