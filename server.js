@@ -207,23 +207,35 @@ const setPrimaryDomain = async (siteId, customDomain, netlifyToken) => {
   return updatedSiteData;
 };
 
-// FUNÇÃO: Configurar as variáveis de ambiente para Netlify Emails
+// FUNÇÃO: Configurar as variáveis de ambiente para Netlify Emails (VERSÃO CORRIGIDA)
 const setEnvironmentVariables = async (siteId, netlifyToken) => {
-  const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
-  const NETLIFY_EMAILS_SECRET = process.env.NETLIFY_EMAILS_SECRET;
-
-  if (!SENDGRID_API_KEY || !NETLIFY_EMAILS_SECRET) {
-    throw new Error('Variáveis de ambiente SENDGRID_API_KEY ou NETLIFY_EMAILS_SECRET não configuradas no servidor.');
-  }
-
   logger.info('Configurando variáveis de ambiente na Netlify', { siteId });
 
+  // Lista das variáveis de ambiente que o plugin de e-mail precisa.
+  const requiredEnvVars = [
+    'NETLIFY_EMAILS_PROVIDER',
+    'NETLIFY_EMAILS_PROVIDER_API_KEY',
+    'NETLIFY_EMAILS_SECRET'
+  ];
+
+  const envPayload = {};
+
+  // Lê cada variável do ambiente do nosso servidor e a adiciona ao payload.
+  for (const key of requiredEnvVars) {
+    const value = process.env[key];
+    if (!value) {
+      // Se alguma variável essencial não estiver configurada no nosso servidor, o processo para.
+      throw new Error(`Variável de ambiente obrigatória '${key}' não está configurada no servidor de deploy.`);
+    }
+    envPayload[key] = value;
+  }
+
+  // O corpo da requisição para a API da Netlify.
+  // A API espera um objeto 'build_settings' com uma propriedade 'env'.
   const body = {
-    env: [
-      { key: 'NETLIFY_EMAILS_PROVIDER', value: 'sendgrid' },
-      { key: 'NETLIFY_EMAILS_PROVIDER_API_KEY', value: SENDGRID_API_KEY },
-      { key: 'NETLIFY_EMAILS_SECRET', value: NETLIFY_EMAILS_SECRET },
-    ],
+    build_settings: {
+      env: envPayload,
+    },
   };
 
   const response = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}`, {
@@ -232,18 +244,17 @@ const setEnvironmentVariables = async (siteId, netlifyToken) => {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${netlifyToken}`,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(body ),
   });
 
   if (!response.ok) {
     const errorData = await response.json();
-    logger.error('Falha ao configurar variáveis de ambiente', { error: errorData });
+    logger.error('Falha ao configurar variáveis de ambiente na Netlify', { error: errorData });
     throw new Error(`Não foi possível configurar as variáveis de ambiente: ${errorData.message}`);
   }
 
-  logger.info('Variáveis de ambiente configuradas com sucesso', { siteId });
+  logger.info('Variáveis de ambiente configuradas com sucesso na Netlify', { siteId });
 };
-
 // FUNÇÃO: Fazer o deploy do ZIP para um site existente
 const deployZipToSite = async (siteId, zipPath, netlifyToken) => {
   logger.info('Fazendo deploy do ZIP para o site existente', { siteId });
