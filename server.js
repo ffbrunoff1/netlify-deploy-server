@@ -418,7 +418,7 @@ const publishToNetlify = async (zipPath, siteName = null) => {
     throw new Error('Token da Netlify não configurado no servidor. Configure a variável NETLIFY_AUTH_TOKEN.');
   }
 
-  const hasEmailConfig = process.env.SENDGRID_API_KEY && process.env.NETLIFY_EMAILS_SECRET;
+  const hasEmailConfig = process.env.NETLIFY_EMAILS_PROVIDER_API_KEY && process.env.NETLIFY_EMAILS_SECRET;
 
   if (hasEmailConfig && siteName) {
     logger.info('Usando fluxo completo com domínio personalizado e e-mail', { siteName });
