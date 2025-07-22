@@ -146,7 +146,6 @@ const createNetlifySite = async (siteName, netlifyToken) => {
   const body = {
     name: siteName,
     custom_domain: fqdn,
-    force_ssl: true,
   };
 
   const response = await fetch('https://api.netlify.com/api/v1/sites', {
