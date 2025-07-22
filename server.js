@@ -207,39 +207,67 @@ const setPrimaryDomain = async (siteId, customDomain, netlifyToken) => {
   return updatedSiteData;
 };
 
-// FUNÇÃO: Configurar as variáveis de ambiente para Netlify Emails (VERSÃO MAIS ROBUSTA)
+// FUNÇÃO: Configurar as variáveis de ambiente para Netlify Emails (VERSÃO FINAL - API MODERNA)
 const setEnvironmentVariables = async (siteId, netlifyToken) => {
-  logger.info('Configurando variáveis de ambiente na Netlify', { siteId });
+  logger.info('Configurando variáveis de ambiente na Netlify usando a nova API', { siteId });
 
-  const requiredEnvVars = [
-    'NETLIFY_EMAILS_PROVIDER',
-    'NETLIFY_EMAILS_PROVIDER_API_KEY',
-    'NETLIFY_EMAILS_SECRET'
-  ];
-  const envPayload = {};
+  // Pega o ID da conta do ambiente do servidor
+  const accountId = process.env.NETLIFY_ACCOUNT_ID;
+  if (!accountId) {
+    throw new Error('Variável de ambiente obrigatória NETLIFY_ACCOUNT_ID não está configurada no servidor de deploy.');
+  }
 
-  for (const key of requiredEnvVars) {
-    const value = process.env[key];
+  // Lista das variáveis que precisamos criar
+  const requiredEnvVars = {
+    'NETLIFY_EMAILS_PROVIDER': process.env.NETLIFY_EMAILS_PROVIDER,
+    'NETLIFY_EMAILS_PROVIDER_API_KEY': process.env.NETLIFY_EMAILS_PROVIDER_API_KEY,
+    'NETLIFY_EMAILS_SECRET': process.env.NETLIFY_EMAILS_SECRET
+  };
+
+  // Itera sobre cada variável e cria uma por uma
+  for (const [key, value] of Object.entries(requiredEnvVars)) {
     if (!value) {
       throw new Error(`Variável de ambiente obrigatória '${key}' não está configurada no servidor de deploy.`);
     }
-    envPayload[key] = value;
+
+    logger.info(`Criando variável de ambiente: ${key}`, { siteId });
+
+    // O corpo da requisição para a nova API
+    const body = {
+      key: key,
+      scopes: ['builds', 'functions'], // Disponível para build e para as funções
+      values: [
+        {
+          context: 'all', // Aplica a todos os contextos (produção, deploy previews, etc.)
+          value: value
+        }
+      ]
+    };
+
+    // A URL da nova API. Note que ela usa o account_id e o site_id como query param.
+    const response = await fetch(`https://api.netlify.com/api/v1/accounts/${accountId}/env?site_id=${siteId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${netlifyToken}`,
+      },
+      body: JSON.stringify(body ),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`Falha ao criar a variável de ambiente '${key}'`, { 
+        status: response.status,
+        errorBody: errorText 
+      });
+      throw new Error(`Não foi possível criar a variável de ambiente '${key}': ${errorText}`);
+    }
+    
+    logger.info(`Variável '${key}' criada com sucesso.`);
   }
 
-  const body = {
-    build_settings: {
-      env: envPayload,
-    },
-  };
-
-  const response = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${netlifyToken}`,
-    },
-    body: JSON.stringify(body ),
-  });
+  logger.info('Todas as variáveis de ambiente foram configuradas com sucesso.', { siteId });
+};
 
   // ================================================================
   // INÍCIO DO NOVO TRATAMENTO DE ERRO
@@ -439,9 +467,6 @@ const publishToNetlify = async (zipPath, siteName = null) => {
       const CUSTOM_DOMAIN = process.env.CUSTOM_DOMAIN || 'papum.ai';
       const fqdn = `${siteName}.${CUSTOM_DOMAIN}`;
       await setPrimaryDomain(siteId, fqdn, NETLIFY_TOKEN); // <-- MUDANÇA AQUI (adicionamos este passo)
-
-      logger.info('Aguardando 2 segundos antes de configurar as variáveis de ambiente...');
-      await new Promise(resolve => setTimeout(resolve, 2000));
 
       // Passo 2: Configurar as variáveis de ambiente para o e-mail (sem alteração)
       await setEnvironmentVariables(siteId, NETLIFY_TOKEN);
