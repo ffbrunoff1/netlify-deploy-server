@@ -556,6 +556,38 @@ app.post('/deploy', async (req, res) => {
         await fs.promises.writeFile(fullPath, content, 'utf8');
       })
     );
+
+    javascript
+// ================================================================
+// INÍCIO DA INJEÇÃO DE DEPENDÊNCIA
+// ================================================================
+logger.info('Injetando dependência de e-mail no package.json', { deployId });
+
+const packageJsonPath = path.join(projectDir, 'package.json');
+try {
+  // Lê o conteúdo atual do package.json
+  const packageJsonContent = await fs.promises.readFile(packageJsonPath, 'utf8');
+  const packageJson = JSON.parse(packageJsonContent);
+
+  // Garante que a seção devDependencies exista para evitar erros
+  if (!packageJson.devDependencies) {
+    packageJson.devDependencies = {};
+  }
+  
+  // Adiciona o plugin do Netlify Emails à lista de dependências de desenvolvimento
+  // Usamos uma versão específica para garantir consistência.
+  packageJson.devDependencies['@netlify/plugin-emails'] = '^1.1.1';
+
+  // Sobrescreve o arquivo package.json com a versão modificada
+  await fs.promises.writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2));
+  
+  logger.info('Dependência @netlify/plugin-emails injetada com sucesso.', { deployId });
+
+} catch (e) {
+  // Se o package.json não for encontrado ou houver um erro de parse, o deploy falha com uma mensagem clara.
+  logger.error('Falha ao modificar o package.json. Verifique se o arquivo foi enviado corretamente.', { error: e.message });
+  throw new Error('Não foi possível encontrar ou modificar o package.json do projeto.');
+}
     
     logger.info('Arquivos escritos, iniciando build', { deployId });
     
