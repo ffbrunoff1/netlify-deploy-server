@@ -581,27 +581,50 @@ const publishToNetlify = async (zipPath, siteName = null, userEmail = null) => {
     logger.info('Usando fluxo completo com domínio personalizado e e-mail', { siteName });
     
     try {
-     // Passo 1: Tentar criar o site com o nome original
-  const { siteId } = await createNetlifySite(siteName, NETLIFY_TOKEN);
-  
-  // Passo 1.5: Definir o domínio personalizado como o principal.
-  const CUSTOM_DOMAIN = process.env.CUSTOM_DOMAIN || 'papum.ai';
-  const fqdn = `${siteName}.${CUSTOM_DOMAIN}`;
-      // Passo 2: Configurar as variáveis de ambiente para o e-mail (sem alteração)
-      await setEnvironmentVariables(siteId, NETLIFY_TOKEN);
-      
-      } catch (createError) {
-  if (createError.message.includes('Não foi possível')) {
-    // Fallback: adicionar 4 números aleatórios
-    const fallbackId = Math.floor(1000 + Math.random() * 9000);
-    const fallbackSiteName = `${siteName}-${fallbackId}`;
+    // Passo 1: Tentar criar o site com o nome original
+    const { siteId } = await createNetlifySite(siteName, NETLIFY_TOKEN);
     
-    const { siteId } = await createNetlifySite(fallbackSiteName, NETLIFY_TOKEN);
+    // Passo 1.5: Definir o domínio personalizado como o principal
     const CUSTOM_DOMAIN = process.env.CUSTOM_DOMAIN || 'papum.ai';
-    const fqdn = `${fallbackSiteName}.${CUSTOM_DOMAIN}`;
-  } else {
-    throw createError;
-  }
+    const fqdn = `${siteName}.${CUSTOM_DOMAIN}`;
+
+    // Passo 2: Configurar variáveis de ambiente, domínio, etc.
+    await setEnvironmentVariables(siteId, NETLIFY_TOKEN);
+    await configureCustomDomain(siteId, fqdn, NETLIFY_TOKEN);
+    await deployToNetlify(siteId, deployPath, NETLIFY_TOKEN);
+
+    // Retornar o resultado de sucesso
+    return { success: true, url: `https://${fqdn}`, deployId };
+
+} catch (createError ) {
+    // A criação inicial falhou. Verificamos o motivo.
+    // A condição abaixo é a única parte que muda da sugestão original.
+    if (createError.response?.data?.errors?.subdomain?.includes('must be unique')) {
+        
+        logger.warn(`O nome "${siteName}" já existe. Executando fallback.`);
+
+        // Fallback: adicionar 4 números aleatórios
+        const fallbackId = Math.floor(1000 + Math.random() * 9000);
+        const fallbackSiteName = `${siteName}-${fallbackId}`;
+        
+        // Tenta criar o site com o nome de fallback
+        const { siteId } = await createNetlifySite(fallbackSiteName, NETLIFY_TOKEN);
+        
+        const CUSTOM_DOMAIN = process.env.CUSTOM_DOMAIN || 'papum.ai';
+        const fqdn = `${fallbackSiteName}.${CUSTOM_DOMAIN}`;
+        
+        // Executa os mesmos passos de configuração com os novos dados
+        await setEnvironmentVariables(siteId, NETLIFY_TOKEN);
+        await configureCustomDomain(siteId, fqdn, NETLIFY_TOKEN);
+        await deployToNetlify(siteId, deployPath, NETLIFY_TOKEN);
+
+        // Retornar o resultado de sucesso do fallback
+        return { success: true, url: `https://${fqdn}`, deployId };
+
+    } else {
+        // Se o erro não for de nome duplicado, é um erro real. Lançamos ele.
+        throw createError;
+    }
 }
 
       // Passo 3: Fazer o deploy do código (ZIP) para o site recém-criado (sem alteração)
