@@ -76,10 +76,11 @@ const corsOptions = {
 
     // Lógica para permitir subdomínios de lovableproject.com
     // Isso cobre 'https://qualquer-coisa.lovableproject.com'
-    const isLovableSubdomain = /^https:\/\/[a-z0-9-]+\.lovableproject\.com$/.test(origin );
-    if (isLovableSubdomain) {
-      return callback(null, true);
-    }
+    // Bloco corrigido e mais flexível
+    const lovableDomain = 'lovableproject.com';
+    if (origin.endsWith(`.${lovableDomain}`) || origin === `https://${lovableDomain}` ) {
+    return callback(null, true);
+}
 
     // Se a origem não for permitida
     const msg = 'A política de CORS para este site não permite acesso da origem especificada.';
