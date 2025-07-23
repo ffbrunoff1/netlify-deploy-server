@@ -135,13 +135,10 @@ const deployRequestSchema = Joi.object({
 // ==========================================
 
 // FUNÇÃO: Criar um site na Netlify com domínio personalizado
-const createNetlifySite = async (siteName, netlifyToken) => {
+  const createNetlifySite = async (siteName, netlifyToken) => {
   logger.info('Criando novo site na Netlify com domínio personalizado', { siteName });
 
-  // O domínio base da sua ferramenta (VOCÊ PRECISA CONFIGURAR ESTA VARIÁVEL)
   const CUSTOM_DOMAIN = process.env.CUSTOM_DOMAIN || 'papum.ai';
-
-  // Monta o FQDN (Fully Qualified Domain Name) que queremos
   const fqdn = `${siteName}.${CUSTOM_DOMAIN}`;
 
   const body = {
@@ -155,23 +152,33 @@ const createNetlifySite = async (siteName, netlifyToken) => {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${netlifyToken}`,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(body ),
   });
 
+  // AQUI ESTÁ A CORREÇÃO PRINCIPAL
   if (!response.ok) {
     const errorData = await response.json();
     logger.error('Falha ao criar site na Netlify', { error: errorData });
-    if (errorData.message && errorData.message.includes('must be unique')) {
-        throw new Error(`O nome do site '${siteName}' já está em uso. Tente outro.`);
+
+    // Verifica corretamente se o erro é de subdomínio ou domínio único
+    const subdomainError = errorData.errors?.subdomain?.some(e => e.includes('must be unique'));
+    const domainError = errorData.errors?.custom_domain?.some(e => e.includes('must be unique'));
+
+    if (subdomainError || domainError) {
+      // Lança um erro com a mensagem que o fallback espera
+      throw new Error(`O nome do site '${siteName}' já está em uso.`);
     }
-    throw new Error(`Não foi possível criar o site: ${errorData.message}`);
+    
+    // Para todos os outros erros, usa a mensagem de erro geral se existir
+    const errorMessage = errorData.message || JSON.stringify(errorData.errors);
+    throw new Error(`Não foi possível criar o site: ${errorMessage}`);
   }
 
   const siteData = await response.json();
   logger.info('Site criado com sucesso na Netlify', { 
     siteId: siteData.id,
     customUrl: `https://${fqdn}`
-  });
+  } );
   
   return {
     siteId: siteData.id,
