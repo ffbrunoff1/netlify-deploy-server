@@ -225,8 +225,8 @@ const setEnvironmentVariables = async (siteId, netlifyToken) => {
 
   logger.info('Configurando variáveis de ambiente na Netlify', { siteId });
 
-  // CORREÇÃO: O corpo agora é um objeto simples, não um array.
-  const body = {
+  // A estrutura correta do corpo da requisição para este endpoint.
+  const requestBody = {
     env: {
       'NETLIFY_EMAILS_PROVIDER': 'sendgrid',
       'NETLIFY_EMAILS_PROVIDER_API_KEY': SENDGRID_API_KEY,
@@ -234,20 +234,21 @@ const setEnvironmentVariables = async (siteId, netlifyToken) => {
     }
   };
 
-  // CORREÇÃO: A rota agora é '/build_settings' e o método é 'PATCH'.
+  // A combinação correta: método PATCH e rota /build_settings.
   const response = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/build_settings`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${netlifyToken}`,
     },
-    body: JSON.stringify(body ),
+    body: JSON.stringify(requestBody ),
   });
 
+  // Tratamento de erro que não quebra se a resposta não for JSON.
   if (!response.ok) {
-    const errorData = await response.json();
-    logger.error('Falha ao configurar variáveis de ambiente', { error: errorData });
-    throw new Error(`Não foi possível configurar as variáveis de ambiente: ${JSON.stringify(errorData)}`);
+    const errorText = await response.text();
+    logger.error('Falha ao configurar variáveis de ambiente', { status: response.status, error: errorText });
+    throw new Error(`Não foi possível configurar as variáveis de ambiente (Status: ${response.status}): ${errorText}`);
   }
 
   logger.info('Variáveis de ambiente configuradas com sucesso', { siteId });
