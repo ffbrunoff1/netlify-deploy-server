@@ -120,13 +120,14 @@ app.use((req, res, next) => {
   next();
 });
 
-// Esquema de validação
+// Esquema de validação - MODIFICADO para incluir userEmail
 const deployRequestSchema = Joi.object({
   files: Joi.object().pattern(
     Joi.string(),
     Joi.string().allow('')
   ).required(),
-  siteName: Joi.string().optional()
+  siteName: Joi.string().optional(),
+  userEmail: Joi.string().email().optional() // NOVO: E-mail do usuário para receber os formulários
 });
 
 // ==========================================
@@ -269,6 +270,173 @@ const deployZipToSite = async (siteId, zipPath, netlifyToken) => {
   return deployData;
 };
 
+// NOVA FUNÇÃO: Injetar funcionalidade de e-mail seguindo a documentação da Netlify
+const injectEmailFunctionality = async (projectDir, userEmail) => {
+  logger.info('Injetando funcionalidade de e-mail seguindo documentação da Netlify', { projectDir });
+
+  // 1. Adicionar plugin @netlify/plugin-emails no package.json
+  const packageJsonPath = path.join(projectDir, 'package.json');
+  const packageJsonContent = await fs.promises.readFile(packageJsonPath, 'utf8');
+  const packageJson = JSON.parse(packageJsonContent);
+  
+  if (!packageJson.devDependencies) packageJson.devDependencies = {};
+  packageJson.devDependencies['@netlify/plugin-emails'] = '^1.1.1';
+  
+  await fs.promises.writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2));
+  logger.info('Plugin @netlify/plugin-emails adicionado ao package.json');
+
+  // 2. Criar netlify.toml com plugin de e-mail
+  const netlifyTomlPath = path.join(projectDir, 'netlify.toml');
+  const netlifyTomlContent = `# Habilita o plugin de e-mails da Netlify
+[[plugins]]
+  package = "@netlify/plugin-emails"
+
+# Define o diretório para as Netlify Functions
+[functions]
+  directory = "netlify/functions"
+`;
+  await fs.promises.writeFile(netlifyTomlPath, netlifyTomlContent);
+  logger.info('Arquivo netlify.toml criado com plugin de e-mail');
+
+  // 3. Criar diretório emails/contato
+  const emailsDir = path.join(projectDir, 'emails', 'contato');
+  await fs.promises.mkdir(emailsDir, { recursive: true });
+
+  // 4. Criar template de e-mail emails/contato/index.html
+  const emailTemplateContent = `<html>
+  <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; margin: 0; padding: 20px;">
+    <div style="max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
+      <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
+        <h1 style="margin: 0; color: #333;">Nova Mensagem do Formulário de Contato</h1>
+      </div>
+      <div style="padding: 20px;">
+        <div style="margin-bottom: 15px;">
+          <strong style="color: #555;">Nome:</strong>
+          <div style="margin-top: 5px;">{{name}}</div>
+        </div>
+        <div style="margin-bottom: 15px;">
+          <strong style="color: #555;">E-mail:</strong>
+          <div style="margin-top: 5px;">{{email}}</div>
+        </div>
+        {{#if companyName}}
+        <div style="margin-bottom: 15px;">
+          <strong style="color: #555;">Empresa:</strong>
+          <div style="margin-top: 5px;">{{companyName}}</div>
+        </div>
+        {{/if}}
+        {{#if phone}}
+        <div style="margin-bottom: 15px;">
+          <strong style="color: #555;">Telefone:</strong>
+          <div style="margin-top: 5px;">{{phone}}</div>
+        </div>
+        {{/if}}
+        <div style="margin-bottom: 15px;">
+          <strong style="color: #555;">Mensagem:</strong>
+          <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-top: 10px;">{{message}}</div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`;
+
+  const emailTemplatePath = path.join(emailsDir, 'index.html');
+  await fs.promises.writeFile(emailTemplatePath, emailTemplateContent);
+  logger.info('Template de e-mail criado em emails/contato/index.html');
+
+  // 5. Criar diretório netlify/functions
+  const functionsDir = path.join(projectDir, 'netlify', 'functions');
+  await fs.promises.mkdir(functionsDir, { recursive: true });
+
+  // 6. Criar função para envio de e-mail netlify/functions/send-contact-email.js
+  const contactFunctionContent = `import fetch from 'node-fetch';
+
+export const handler = async (event, context) => {
+  // Configurar CORS
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  };
+
+  // Responder a requisições OPTIONS (preflight)
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 200, headers, body: '' };
+  }
+
+  // Só aceitar POST
+  if (event.httpMethod !== 'POST') {
+    return {
+      statusCode: 405,
+      headers,
+      body: JSON.stringify({ error: 'Método não permitido' }),
+    };
+  }
+
+  try {
+    const { name, email, message, companyName, phone } = JSON.parse(event.body);
+
+    // Validação básica
+    if (!name || !email || !message) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Nome, e-mail e mensagem são obrigatórios.' }),
+      };
+    }
+
+    // Enviar e-mail usando o template da Netlify
+    const response = await fetch(\`\${process.env.URL}/.netlify/functions/emails/contato\`, {
+      headers: {
+        "netlify-emails-secret": process.env.NETLIFY_EMAILS_SECRET,
+      },
+      method: "POST",
+      body: JSON.stringify({
+        from: "noreply@papum.ai",
+        to: "${userEmail || 'contato@papum.ai'}",
+        subject: \`Nova mensagem do site de \${name}\`,
+        parameters: {
+          name: name,
+          email: email,
+          message: message,
+          companyName: companyName || '',
+          phone: phone || ''
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Falha ao enviar e-mail');
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ 
+        success: true, 
+        message: 'Mensagem enviada com sucesso!'
+      }),
+    };
+
+  } catch (error) {
+    console.error('Erro ao enviar e-mail:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ 
+        error: 'Erro interno do servidor',
+        message: 'Não foi possível enviar a mensagem. Tente novamente.' 
+      }),
+    };
+  }
+};`;
+
+  const contactFunctionPath = path.join(functionsDir, 'send-contact-email.js');
+  await fs.promises.writeFile(contactFunctionPath, contactFunctionContent);
+  logger.info('Função de contato criada em netlify/functions/send-contact-email.js');
+
+  logger.info('Funcionalidade de e-mail injetada com sucesso seguindo documentação da Netlify');
+};
+
 // ==========================================
 // FUNÇÕES ORIGINAIS (MANTIDAS INTACTAS)
 // ==========================================
@@ -401,7 +569,7 @@ const createZipFromDist = (projectDir) => {
   });
 };
 
-const publishToNetlify = async (zipPath, siteName = null) => {
+const publishToNetlify = async (zipPath, siteName = null, userEmail = null) => {
   const NETLIFY_TOKEN = process.env.NETLIFY_AUTH_TOKEN;
   if (!NETLIFY_TOKEN) {
     throw new Error('Token da Netlify não configurado no servidor. Configure a variável NETLIFY_AUTH_TOKEN.');
@@ -413,12 +581,16 @@ const publishToNetlify = async (zipPath, siteName = null) => {
     logger.info('Usando fluxo completo com domínio personalizado e e-mail', { siteName });
     
     try {
+      // Gerar nome único para evitar conflitos
+      const uniqueId = nanoid(8).toLowerCase();
+      const uniqueSiteName = `${siteName}-${uniqueId}`;
+      
       // Passo 1: Criar o site. A desestruturação aqui muda um pouco.
-      const { siteId } = await createNetlifySite(siteName, NETLIFY_TOKEN); // <-- MUDANÇA AQUI (não pegamos mais finalUrl)
+      const { siteId } = await createNetlifySite(uniqueSiteName, NETLIFY_TOKEN); // <-- MUDANÇA AQUI (não pegamos mais finalUrl)
 
       // Passo 1.5 (NOVO): Definir o domínio personalizado como o principal.
       const CUSTOM_DOMAIN = process.env.CUSTOM_DOMAIN || 'papum.ai';
-      const fqdn = `${siteName}.${CUSTOM_DOMAIN}`;
+      const fqdn = `${uniqueSiteName}.${CUSTOM_DOMAIN}`;
       await setPrimaryDomain(siteId, fqdn, NETLIFY_TOKEN); // <-- MUDANÇA AQUI (adicionamos este passo)
 
       // Passo 2: Configurar as variáveis de ambiente para o e-mail (sem alteração)
@@ -535,14 +707,14 @@ app.post('/deploy', async (req, res) => {
       });
     }
     
-    const { files, siteName } = value;
+    const { files, siteName, userEmail } = value; // MODIFICADO: incluir userEmail
     const fileCount = Object.keys(files).length;
     
     if (fileCount === 0) {
       return res.status(400).json({ error: 'Nenhum arquivo fornecido' });
     }
     
-    logger.info('Criando projeto para deploy', { deployId, fileCount, siteName });
+    logger.info('Criando projeto para deploy', { deployId, fileCount, siteName, userEmail }); // MODIFICADO: incluir userEmail no log
     
     // Criar diretório do projeto
     await fs.promises.mkdir(projectDir, { recursive: true });
@@ -556,6 +728,9 @@ app.post('/deploy', async (req, res) => {
         await fs.promises.writeFile(fullPath, content, 'utf8');
       })
     );
+
+    // NOVA FUNCIONALIDADE: Injetar funcionalidade de e-mail seguindo documentação da Netlify
+    await injectEmailFunctionality(projectDir, userEmail);
     
     logger.info('Arquivos escritos, iniciando build', { deployId });
     
@@ -579,7 +754,7 @@ app.post('/deploy', async (req, res) => {
     const zipPath = await createZipFromDist(projectDir);
     
     // Publicar na Netlify
-    const deployData = await publishToNetlify(zipPath, siteName);
+    const deployData = await publishToNetlify(zipPath, siteName, userEmail); // MODIFICADO: incluir userEmail
 
     logger.info('RESPOSTA COMPLETA RECEBIDA DO NETLIFY:', { 
       data: JSON.stringify(deployData, null, 2) 
@@ -605,6 +780,7 @@ res.json({
   deploy_id: deployData.deploy_id || '',
   subdomain: deployData.subdomain || '',
   url: deployData.url || '',
+  ssl_url: deployData.ssl_url || '', // ADICIONADO: incluir ssl_url na resposta
   state: deployData.state || 'uploaded',
   required: deployData.required || []
 });
