@@ -360,20 +360,16 @@ const injectEmailFunctionality = async (projectDir, userEmail) => {
   const contactFunctionContent = `import fetch from 'node-fetch';
 
 export const handler = async (event, context) => {
-  // Cabeçalhos para permitir a requisição do navegador (CORS)
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
   };
 
-  // O navegador envia uma requisição 'OPTIONS' antes do 'POST' para verificar o CORS.
-  // Precisamos responder a ela com sucesso.
   if (event.httpMethod === 'OPTIONS' ) {
     return { statusCode: 204, headers, body: '' };
   }
 
-  // Apenas o método POST é permitido para o envio do formulário.
   if (event.httpMethod !== 'POST' ) {
     return {
       statusCode: 405,
@@ -383,14 +379,12 @@ export const handler = async (event, context) => {
   }
 
   try {
-    // Validação de segurança básica
     if (!process.env.NETLIFY_EMAILS_SECRET) {
       throw new Error('A variável NETLIFY_EMAILS_SECRET não está configurada no ambiente da função.');
     }
 
     const { name, email, message, companyName, phone } = JSON.parse(event.body);
 
-    // Validação dos campos do formulário
     if (!name || !email || !message) {
       return {
         statusCode: 400,
@@ -399,24 +393,19 @@ export const handler = async (event, context) => {
       };
     }
 
-    // Esta é a chamada para a API interna de e-mails da Netlify.
-    // Ela usa as variáveis de ambiente que configuramos para se conectar ao SendGrid.
     const internalEmailResponse = await fetch(\`\${process.env.URL}/.netlify/functions/emails/contato\`, {
       headers: {
         "netlify-emails-secret": process.env.NETLIFY_EMAILS_SECRET,
       },
       method: "POST",
       body: JSON.stringify({
-        from: "noreply@papum.ai", // O e-mail que você verificou na SendGrid
-        to: "${userEmail || 'contato@papum.ai'}", // O e-mail do seu cliente
+        from: "noreply@papum.ai",
+        to: "${userEmail || 'contato@papum.ai'}",
         subject: \`Nova mensagem do site de \${name}\`,
         parameters: { name, email, message, companyName: companyName || '', phone: phone || '' },
       }),
     });
 
-    // **A CORREÇÃO MAIS IMPORTANTE ESTÁ AQUI**
-    // Se a chamada interna para a API de e-mail falhar, nós capturamos o erro
-    // e o retornamos em um JSON, para que o formulário possa exibi-lo.
     if (!internalEmailResponse.ok) {
       const errorBody = await internalEmailResponse.text();
       console.error('Erro da API interna de e-mail da Netlify:', errorBody);
@@ -427,7 +416,6 @@ export const handler = async (event, context) => {
       };
     }
 
-    // Se tudo deu certo, retorna sucesso.
     return {
       statusCode: 200,
       headers,
@@ -435,7 +423,6 @@ export const handler = async (event, context) => {
     };
 
   } catch (error) {
-    // Captura qualquer outro erro inesperado na função.
     console.error('Erro catastrófico na função:', error);
     return {
       statusCode: 500,
