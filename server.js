@@ -65,32 +65,28 @@ const allowedOrigins = [
 ];
 
 const corsOptions = {
-  origin: function (origin, callback ) {
+  origin: function (origin, callback) {
     // Permite requisições sem 'origin' (ex: Postman, curl)
-    if (!origin) return callback(null, true);
-
-    // Verifica se a origem está na lista de permitidas
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
+    if (!origin) {
+        return callback(null, true);
     }
 
-    // Lógica para permitir subdomínios de lovableproject.com
-    // Isso cobre 'https://qualquer-coisa.lovableproject.com'
-    // Bloco corrigido e mais flexível
-    const lovableDomain = 'lovableproject.com';
-    if (origin.endsWith(`.${lovableDomain}`) || origin === `https://${lovableDomain}` ) {
-    return callback(null, true);
-}
+    // Verifica se a origem está na lista de permitidas estáticas
+    if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+    }
 
-    // Se a origem não for permitida
-    const msg = 'A política de CORS para este site não permite acesso da origem especificada.';
+    // CORREÇÃO: Verifica se a origem é um subdomínio de 'lovable.app'
+    const lovableAppDomain = 'lovable.app';
+    if (origin.endsWith(`.${lovableAppDomain}`)) {
+        return callback(null, true);
+    }
+
+    // Se a origem não for permitida de forma alguma
+    const msg = `A política de CORS para este site não permite acesso da origem: ${origin}`;
+    logger.warn('Requisição de CORS bloqueada', { origin }); // Adiciona um log para depuração
     return callback(new Error(msg), false);
-  },
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  optionsSuccessStatus: 204 // Retorna 204 para preflight, é mais moderno e evita problemas
-};
+},
 
 // Aplica o middleware CORS com as opções configuradas
 app.use(cors(corsOptions));
