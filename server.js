@@ -577,34 +577,24 @@ const publishToNetlify = async (zipPath, siteName = null, userEmail = null) => {
 
   const hasEmailConfig = process.env.SENDGRID_API_KEY && process.env.NETLIFY_EMAILS_SECRET;
 
-  // =================== INÍCIO DA SEÇÃO A SER CORRIGIDA ===================
   if (hasEmailConfig && siteName) {
     logger.info('Usando fluxo completo com domínio personalizado e e-mail', { siteName });
     
     try {
         // Passo 1: Tentar criar o site com o nome original
-        const { siteId } = await createNetlifySite(siteName, NETLIFY_TOKEN);
+        const { siteId, finalUrl } = await createNetlifySite(siteName, NETLIFY_TOKEN);
         
-        // Passo 1.5: Definir o domínio personalizado como o principal
-        const CUSTOM_DOMAIN = process.env.CUSTOM_DOMAIN || 'papum.ai';
-        const fqdn = `${siteName}.${CUSTOM_DOMAIN}`;
-
-        // Passo 2: Configurar variáveis de ambiente, domínio, etc.
+        // Passo 2: Configurar variáveis de ambiente e fazer o deploy
         await setEnvironmentVariables(siteId, NETLIFY_TOKEN);
-        await configureCustomDomain(siteId, fqdn, NETLIFY_TOKEN);
-        
-        // Passo 3: Fazer o deploy do código (ZIP) para o site recém-criado
         const deployData = await deployZipToSite(siteId, zipPath, NETLIFY_TOKEN);
 
-        // Monta a URL final com o domínio personalizado correto
-        const finalUrl = `https://${fqdn}`;
-
-        // Retorna os dados com a URL personalizada
+        // Retorna os dados com a URL personalizada correta
         return { ...deployData, ssl_url: finalUrl, url: finalUrl };
 
-    } catch (createError ) {
+    } catch (createError) {
         // A criação inicial falhou. Verificamos o motivo.
-        if (createError.response?.data?.errors?.subdomain?.includes('must be unique')) {
+        // A condição agora verifica a mensagem de erro exata que sua função 'createNetlifySite' gera.
+        if (createError.message.includes('já está em uso')) {
             
             logger.warn(`O nome "${siteName}" já existe. Executando fallback.`);
 
@@ -613,34 +603,23 @@ const publishToNetlify = async (zipPath, siteName = null, userEmail = null) => {
             const fallbackSiteName = `${siteName}-${fallbackId}`;
             
             // Tenta criar o site com o nome de fallback
-            const { siteId } = await createNetlifySite(fallbackSiteName, NETLIFY_TOKEN);
-            
-            const CUSTOM_DOMAIN = process.env.CUSTOM_DOMAIN || 'papum.ai';
-            const fqdn = `${fallbackSiteName}.${CUSTOM_DOMAIN}`;
+            const { siteId, finalUrl } = await createNetlifySite(fallbackSiteName, NETLIFY_TOKEN);
             
             // Executa os mesmos passos de configuração com os novos dados
             await setEnvironmentVariables(siteId, NETLIFY_TOKEN);
-            await configureCustomDomain(siteId, fqdn, NETLIFY_TOKEN);
-            
-            // Passo 3 (no fallback): Fazer o deploy do código (ZIP)
             const deployData = await deployZipToSite(siteId, zipPath, NETLIFY_TOKEN);
-
-            const finalUrl = `https://${fqdn}`;
 
             // Retornar o resultado de sucesso do fallback
             return { ...deployData, ssl_url: finalUrl, url: finalUrl };
 
         } else {
             // Se o erro não for de nome duplicado, é um erro real. Lançamos ele.
-            logger.error('Falha no processo de publicação na Netlify', { error: createError.message } );
+            logger.error('Falha no processo de publicação na Netlify', { error: createError.message });
             throw createError;
         }
     }
   } else {
-    // ================================================================
-    // O BLOCO 'ELSE' INTEIRO DEVE PERMANECER EXATAMENTE COMO ESTÁ.
-    // ELE NÃO DEVE SER REMOVIDO.
-    // ================================================================
+    // O BLOCO 'ELSE' PERMANECE EXATAMENTE COMO ESTÁ.
     logger.info('Usando fluxo original da Netlify', { zipPath, siteName });
 
     try {
