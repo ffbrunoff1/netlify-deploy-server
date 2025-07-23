@@ -207,81 +207,41 @@ const setPrimaryDomain = async (siteId, customDomain, netlifyToken) => {
   return updatedSiteData;
 };
 
-// VERSÃO FINAL E CORRETA DA FUNÇÃO
+// FUNÇÃO: Configurar as variáveis de ambiente para Netlify Emails
 const setEnvironmentVariables = async (siteId, netlifyToken) => {
-  logger.info('Configurando variáveis de ambiente na Netlify usando a nova API', { siteId });
+  const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
+  const NETLIFY_EMAILS_SECRET = process.env.NETLIFY_EMAILS_SECRET;
 
-  const accountId = process.env.NETLIFY_ACCOUNT_ID;
-  if (!accountId) {
-    throw new Error('Variável de ambiente obrigatória NETLIFY_ACCOUNT_ID não está configurada no servidor de deploy.');
+  if (!SENDGRID_API_KEY || !NETLIFY_EMAILS_SECRET) {
+    throw new Error('Variáveis de ambiente SENDGRID_API_KEY ou NETLIFY_EMAILS_SECRET não configuradas no servidor.');
   }
 
-  const requiredEnvVars = {
-    'NETLIFY_EMAILS_PROVIDER': process.env.NETLIFY_EMAILS_PROVIDER,
-    'NETLIFY_EMAILS_PROVIDER_API_KEY': process.env.NETLIFY_EMAILS_PROVIDER_API_KEY,
-    'NETLIFY_EMAILS_SECRET': process.env.NETLIFY_EMAILS_SECRET
+  logger.info('Configurando variáveis de ambiente na Netlify', { siteId });
+
+  const body = {
+    env: [
+      { key: 'NETLIFY_EMAILS_PROVIDER', value: 'sendgrid' },
+      { key: 'NETLIFY_EMAILS_PROVIDER_API_KEY', value: SENDGRID_API_KEY },
+      { key: 'NETLIFY_EMAILS_SECRET', value: NETLIFY_EMAILS_SECRET },
+    ],
   };
 
-  for (const key of Object.keys(requiredEnvVars)) {
-    const value = requiredEnvVars[key];
-    if (!value) {
-      throw new Error(`Variável de ambiente obrigatória '${key}' não está configurada no servidor de deploy.`);
-    }
+  const response = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${netlifyToken}`,
+    },
+    body: JSON.stringify(body),
+  });
 
-    logger.info(`Criando variável de ambiente: ${key}`, { siteId });
-
-    const body = {
-      key: key,
-      scopes: ['builds', 'functions'],
-      values: [{
-        context: 'all',
-        value: value
-      }]
-    };
-
-    const response = await fetch(`https://api.netlify.com/api/v1/accounts/${accountId}/env?site_id=${siteId}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${netlifyToken}`,
-      },
-      body: JSON.stringify(body ), // <-- Corrigi um 'body' solto aqui também
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.error(`Falha ao criar a variável de ambiente '${key}'`, {
-        status: response.status,
-        errorBody: errorText
-      });
-      throw new Error(`Não foi possível criar a variável de ambiente '${key}': ${errorText}`);
-    }
-
-    logger.info(`Variável '${key}' criada com sucesso.`);
-  } // Fim do loop for
-
-  logger.info('Todas as variáveis de ambiente foram configuradas com sucesso.', { siteId });
-};
-
-  // ================================================================
-  // INÍCIO DO NOVO TRATAMENTO DE ERRO
-  // ================================================================
   if (!response.ok) {
-    // Tenta ler a resposta como texto, já que pode não ser JSON
-    const errorText = await response.text(); 
-    logger.error('Falha ao configurar variáveis de ambiente na Netlify', { 
-      status: response.status,
-      errorBody: errorText // Loga o corpo exato da resposta
-    });
-    // Joga um erro com a mensagem que recebemos
-    throw new Error(`Não foi possível configurar as variáveis de ambiente: ${errorText}`);
+    const errorData = await response.json();
+    logger.error('Falha ao configurar variáveis de ambiente', { error: errorData });
+    throw new Error(`Não foi possível configurar as variáveis de ambiente: ${errorData.message}`);
   }
-  // ================================================================
-  // FIM DO NOVO TRATAMENTO DE ERRO
-  // ================================================================
 
-  logger.info('Variáveis de ambiente configuradas com sucesso na Netlify', { siteId });
-  // Como a resposta de um PUT bem-sucedido pode não ter corpo, não tentamos fazer o .json()
+  logger.info('Variáveis de ambiente configuradas com sucesso', { siteId });
 };
 
 // FUNÇÃO: Fazer o deploy do ZIP para um site existente
@@ -447,7 +407,7 @@ const publishToNetlify = async (zipPath, siteName = null) => {
     throw new Error('Token da Netlify não configurado no servidor. Configure a variável NETLIFY_AUTH_TOKEN.');
   }
 
-  const hasEmailConfig = process.env.NETLIFY_EMAILS_PROVIDER_API_KEY && process.env.NETLIFY_EMAILS_SECRET;
+  const hasEmailConfig = process.env.SENDGRID_API_KEY && process.env.NETLIFY_EMAILS_SECRET;
 
   if (hasEmailConfig && siteName) {
     logger.info('Usando fluxo completo com domínio personalizado e e-mail', { siteName });
@@ -596,37 +556,6 @@ app.post('/deploy', async (req, res) => {
         await fs.promises.writeFile(fullPath, content, 'utf8');
       })
     );
-
-// ================================================================
-// INÍCIO DA INJEÇÃO DE DEPENDÊNCIA
-// ================================================================
-logger.info('Injetando dependência de e-mail no package.json', { deployId });
-
-const packageJsonPath = path.join(projectDir, 'package.json');
-try {
-  // Lê o conteúdo atual do package.json
-  const packageJsonContent = await fs.promises.readFile(packageJsonPath, 'utf8');
-  const packageJson = JSON.parse(packageJsonContent);
-
-  // Garante que a seção devDependencies exista para evitar erros
-  if (!packageJson.devDependencies) {
-    packageJson.devDependencies = {};
-  }
-  
-  // Adiciona o plugin do Netlify Emails à lista de dependências de desenvolvimento
-  // Usamos uma versão específica para garantir consistência.
-  packageJson.devDependencies['@netlify/plugin-emails'] = '^1.1.1';
-
-  // Sobrescreve o arquivo package.json com a versão modificada
-  await fs.promises.writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2));
-  
-  logger.info('Dependência @netlify/plugin-emails injetada com sucesso.', { deployId });
-
-} catch (e) {
-  // Se o package.json não for encontrado ou houver um erro de parse, o deploy falha com uma mensagem clara.
-  logger.error('Falha ao modificar o package.json. Verifique se o arquivo foi enviado corretamente.', { error: e.message });
-  throw new Error('Não foi possível encontrar ou modificar o package.json do projeto.');
-}
     
     logger.info('Arquivos escritos, iniciando build', { deployId });
     
