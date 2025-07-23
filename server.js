@@ -581,20 +581,28 @@ const publishToNetlify = async (zipPath, siteName = null, userEmail = null) => {
     logger.info('Usando fluxo completo com domínio personalizado e e-mail', { siteName });
     
     try {
-      // Gerar nome único para evitar conflitos
-      const uniqueId = nanoid(8).toLowerCase();
-      const uniqueSiteName = `${siteName}-${uniqueId}`;
-      
-      // Passo 1: Criar o site. A desestruturação aqui muda um pouco.
-      const { siteId } = await createNetlifySite(uniqueSiteName, NETLIFY_TOKEN); // <-- MUDANÇA AQUI (não pegamos mais finalUrl)
-
-      // Passo 1.5 (NOVO): Definir o domínio personalizado como o principal.
-      const CUSTOM_DOMAIN = process.env.CUSTOM_DOMAIN || 'papum.ai';
-      const fqdn = `${uniqueSiteName}.${CUSTOM_DOMAIN}`;
-      await setPrimaryDomain(siteId, fqdn, NETLIFY_TOKEN); // <-- MUDANÇA AQUI (adicionamos este passo)
-
+     // Passo 1: Tentar criar o site com o nome original
+  const { siteId } = await createNetlifySite(siteName, NETLIFY_TOKEN);
+  
+  // Passo 1.5: Definir o domínio personalizado como o principal.
+  const CUSTOM_DOMAIN = process.env.CUSTOM_DOMAIN || 'papum.ai';
+  const fqdn = `${siteName}.${CUSTOM_DOMAIN}`;
       // Passo 2: Configurar as variáveis de ambiente para o e-mail (sem alteração)
       await setEnvironmentVariables(siteId, NETLIFY_TOKEN);
+      
+      } catch (createError) {
+  if (createError.message.includes('Não foi possível')) {
+    // Fallback: adicionar 4 números aleatórios
+    const fallbackId = Math.floor(1000 + Math.random() * 9000);
+    const fallbackSiteName = `${siteName}-${fallbackId}`;
+    
+    const { siteId } = await createNetlifySite(fallbackSiteName, NETLIFY_TOKEN);
+    const CUSTOM_DOMAIN = process.env.CUSTOM_DOMAIN || 'papum.ai';
+    const fqdn = `${fallbackSiteName}.${CUSTOM_DOMAIN}`;
+  } else {
+    throw createError;
+  }
+}
 
       // Passo 3: Fazer o deploy do código (ZIP) para o site recém-criado (sem alteração)
       const deployData = await deployZipToSite(siteId, zipPath, NETLIFY_TOKEN);
