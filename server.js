@@ -215,7 +215,6 @@ const setPrimaryDomain = async (siteId, customDomain, netlifyToken) => {
   return updatedSiteData;
 };
 
-// FUNÇÃO: Configurar as variáveis de ambiente para Netlify Emails
 const setEnvironmentVariables = async (siteId, netlifyToken) => {
   const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
   const NETLIFY_EMAILS_SECRET = process.env.NETLIFY_EMAILS_SECRET;
@@ -226,27 +225,29 @@ const setEnvironmentVariables = async (siteId, netlifyToken) => {
 
   logger.info('Configurando variáveis de ambiente na Netlify', { siteId });
 
+  // CORREÇÃO: O corpo agora é um objeto simples, não um array.
   const body = {
-    env: [
-      { key: 'NETLIFY_EMAILS_PROVIDER', value: 'sendgrid' },
-      { key: 'NETLIFY_EMAILS_PROVIDER_API_KEY', value: SENDGRID_API_KEY },
-      { key: 'NETLIFY_EMAILS_SECRET', value: NETLIFY_EMAILS_SECRET },
-    ],
+    env: {
+      'NETLIFY_EMAILS_PROVIDER': 'sendgrid',
+      'NETLIFY_EMAILS_PROVIDER_API_KEY': SENDGRID_API_KEY,
+      'NETLIFY_EMAILS_SECRET': NETLIFY_EMAILS_SECRET,
+    }
   };
 
-  const response = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}`, {
-    method: 'PUT',
+  // CORREÇÃO: A rota agora é '/build_settings' e o método é 'PATCH'.
+  const response = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/build_settings`, {
+    method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${netlifyToken}`,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(body ),
   });
 
   if (!response.ok) {
     const errorData = await response.json();
     logger.error('Falha ao configurar variáveis de ambiente', { error: errorData });
-    throw new Error(`Não foi possível configurar as variáveis de ambiente: ${errorData.message}`);
+    throw new Error(`Não foi possível configurar as variáveis de ambiente: ${JSON.stringify(errorData)}`);
   }
 
   logger.info('Variáveis de ambiente configuradas com sucesso', { siteId });
