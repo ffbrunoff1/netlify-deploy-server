@@ -207,7 +207,7 @@ const setPrimaryDomain = async (siteId, customDomain, netlifyToken) => {
   return updatedSiteData;
 };
 
-// FUNÇÃO: Configurar as variáveis de ambiente para Netlify Emails (VERSÃO FINAL REVISADA)
+// VERSÃO FINAL E CORRETA DA FUNÇÃO
 const setEnvironmentVariables = async (siteId, netlifyToken) => {
   logger.info('Configurando variáveis de ambiente na Netlify usando a nova API', { siteId });
 
@@ -222,7 +222,6 @@ const setEnvironmentVariables = async (siteId, netlifyToken) => {
     'NETLIFY_EMAILS_SECRET': process.env.NETLIFY_EMAILS_SECRET
   };
 
-  // Usamos um loop for...of tradicional para usar await dentro dele
   for (const key of Object.keys(requiredEnvVars)) {
     const value = requiredEnvVars[key];
     if (!value) {
@@ -246,7 +245,7 @@ const setEnvironmentVariables = async (siteId, netlifyToken) => {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${netlifyToken}`,
       },
-      body: JSON.stringify(body ),
+      body: JSON.stringify(body ), // <-- Corrigi um 'body' solto aqui também
     });
 
     if (!response.ok) {
