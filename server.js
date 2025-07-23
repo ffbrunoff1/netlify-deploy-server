@@ -610,25 +610,44 @@ const runBuild = async (projectDir) => {
 
 // Função para criar ZIP da pasta dist
 const createZipFromDist = (projectDir) => {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const distPath = path.join(projectDir, 'dist');
+    const functionsPath = path.join(projectDir, 'netlify');
+    const netlifyTomlPath = path.join(projectDir, 'netlify.toml'); // Caminho para o netlify.toml
     const zipPath = path.join(projectDir, 'deploy.zip');
-    const output = fs.createWriteStream(zipPath);
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    
+    try {
+      const output = fs.createWriteStream(zipPath);
+      const archive = archiver('zip', { zlib: { level: 9 } });
 
-    output.on('close', () => {
-      logger.info(`ZIP criado com sucesso: ${zipPath} (${archive.pointer()} bytes)`);
-      resolve(zipPath);
-    });
+      output.on('close', () => {
+        logger.info(`ZIP criado com sucesso: ${zipPath} (${archive.pointer()} bytes)`);
+        resolve(zipPath);
+      });
 
-    archive.on('error', (err) => {
-      logger.error('Erro ao criar ZIP', { error: err.message });
-      reject(err);
-    });
+      archive.on('error', (err) => {
+        logger.error('Erro ao criar ZIP', { error: err.message });
+        reject(err);
+      });
 
-    archive.pipe(output);
-    archive.directory(distPath, false);
-    archive.finalize();
+      archive.pipe(output);
+
+      // Adiciona o conteúdo da pasta 'dist' (o site) na raiz do ZIP.
+      archive.directory(distPath, false);
+
+      // Adiciona a pasta 'netlify' (com as funções) dentro do ZIP.
+      // O segundo argumento 'netlify' garante que a pasta se chame 'netlify' dentro do ZIP.
+      archive.directory(functionsPath, 'netlify');
+
+      // Adiciona o arquivo 'netlify.toml' na raiz do ZIP.
+      archive.file(netlifyTomlPath, { name: 'netlify.toml' });
+
+      await archive.finalize();
+
+    } catch (error) {
+      logger.error('Falha catastrófica ao criar o arquivo ZIP', { error: error.message });
+      reject(error);
+    }
   });
 };
 
