@@ -68,25 +68,30 @@ const corsOptions = {
   origin: function (origin, callback) {
     // Permite requisições sem 'origin' (ex: Postman, curl)
     if (!origin) {
-        return callback(null, true);
+      return callback(null, true);
     }
 
     // Verifica se a origem está na lista de permitidas estáticas
     if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
+      return callback(null, true);
     }
 
     // CORREÇÃO: Verifica se a origem é um subdomínio de 'lovable.app'
     const lovableAppDomain = 'lovable.app';
     if (origin.endsWith(`.${lovableAppDomain}`)) {
-        return callback(null, true);
+      return callback(null, true);
     }
 
     // Se a origem não for permitida de forma alguma
     const msg = `A política de CORS para este site não permite acesso da origem: ${origin}`;
-    logger.warn('Requisição de CORS bloqueada', { origin }); // Adiciona um log para depuração
+    logger.warn('Requisição de CORS bloqueada', { origin });
     return callback(new Error(msg), false);
-},
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 204
+};
 
 // Aplica o middleware CORS com as opções configuradas
 app.use(cors(corsOptions));
