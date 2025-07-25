@@ -635,6 +635,55 @@ const createZipFromDist = (projectDir) => {
   });
 };
 
+// NOVA FUNÇÃO: Convidar um usuário para a equipe da Netlify
+const inviteUserToNetlifyTeam = async (userEmail, netlifyToken) => {
+  const accountSlug = process.env.NETLIFY_ACCOUNT_SLUG;
+  if (!accountSlug) {
+    logger.warn('NETLIFY_ACCOUNT_SLUG não configurado. Pulando convite de usuário.');
+    return; // Não trata como um erro fatal, apenas avisa e continua.
+  }
+
+  logger.info(`Convidando usuário ${userEmail} para a equipe Netlify`, { accountSlug });
+
+  try {
+    const response = await fetch(`https://api.netlify.com/api/v1/accounts/${accountSlug}/members`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${netlifyToken}`,
+      },
+      body: JSON.stringify({
+        email: userEmail,
+        role: 'Collaborator' // 'Collaborator' é uma função segura para começar.
+      } ),
+    });
+
+    if (!response.ok) {
+      // Se o usuário já for membro, a API retorna um erro. Podemos ignorá-lo.
+      if (response.status === 422) {
+        const errorData = await response.json();
+        if (errorData.message && errorData.message.includes('already a member')) {
+          logger.info(`Usuário ${userEmail} já é membro da equipe. Nenhum convite necessário.`);
+          return;
+        }
+      }
+      // Para outros erros, logamos e continuamos.
+      const errorData = await response.json();
+      throw new Error(`Falha ao convidar usuário: ${JSON.stringify(errorData)}`);
+    }
+
+    logger.info(`Convite enviado com sucesso para ${userEmail}`);
+
+  } catch (error) {
+    // Logamos o erro mas não paramos o processo de deploy por causa disso.
+    // O deploy é mais importante que o convite.
+    logger.error('Ocorreu um erro ao tentar convidar o usuário para a equipe Netlify.', {
+      userEmail,
+      error: error.message
+    });
+  }
+};
+
 const publishToNetlify = async (zipPath, siteName = null, userEmail = null) => {
   const NETLIFY_TOKEN = process.env.NETLIFY_AUTH_TOKEN;
   if (!NETLIFY_TOKEN) {
@@ -840,6 +889,11 @@ app.post('/deploy', async (req, res) => {
     
     // Primeiro, vamos logar o que recebemos do Netlify para ter certeza
 logger.info('Dados recebidos do Netlify para montar a resposta:', { deployData });
+
+    if (userEmail) {
+  const NETLIFY_TOKEN = process.env.NETLIFY_AUTH_TOKEN;
+  await inviteUserToNetlifyTeam(userEmail, NETLIFY_TOKEN);
+}
 
 // Montamos a resposta final PLANA, sem o objeto "deploy" aninhado.
 res.json({
